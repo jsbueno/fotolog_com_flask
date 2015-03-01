@@ -3,6 +3,10 @@ import os
 import json
 import sys
 import random
+try:
+    from io import BytesIO
+except ImportError:
+    from cStringIO import StringIO as BytesIO
 
 from PIL import Image
 
@@ -37,15 +41,30 @@ app.secret_key = "secretkey"
 def index():
     return render_template("index.html")
 
-@app.route("/image/<int:id>")
-def raw_image(id):
+@app.route("/image/<int:id>", defaults={"size":None})
+@app.route("/image/<int:id>/<int:size>")
+def raw_image(id, size):
     try:
         image = db.session.query(images.ImageModel).get(id)
         image_path = get_image_path(image.filename)
-        data = open(image_path, "rb").read()
+        img_obj = Image.open(image_path)
     except (TypeError, AttributeError, IOError):
         return render_template('404.html'), 404
-    return Response(data, mimetype=image.get_mime())
+    width, height = img_obj.size
+    if size:
+        if img_obj.mode == "P":
+            img_obj = img_obj.convert("RGBA")
+        width, height = (size, int(height * size / width)) if   width > height  else (int(width * size / height), size)
+        thumbnail = img_obj.resize((width, height),  Image.ANTIALIAS)
+        mime = "image/jpeg"
+    else:
+        thumbnail = img_obj
+        mime = image.get_mime()
+    stream = BytesIO()
+    thumbnail.save(stream, format="jpeg")
+    stream.seek(0)
+    return Response(stream.read(),
+                    mimetype=mime)
 
 @app.route("/browse")
 def browse():
